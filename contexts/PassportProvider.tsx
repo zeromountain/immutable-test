@@ -8,6 +8,10 @@ import { IMXProvider } from '@imtbl/sdk/provider';
 import { Provider, UserProfile } from '@imtbl/sdk/passport';
 import { useStatusProvider } from './StatusProvider';
 import { useImmutableProvider } from './ImmutableProvider';
+import { useCheckRegistered } from '@/apis/auth/AuthApi.query';
+import { useRequestSignup, useVerifySignup } from '@/apis/auth/AuthApi.mutation';
+import { tokenStorage } from '@/utils/web-storage/token';
+import { request } from 'http';
 
 const PassportContext = createContext<{
   imxProvider: IMXProvider | undefined;
@@ -46,9 +50,49 @@ export function PassportProvider({
   const [zkEvmProvider, setZkEvmProvider] = useState<Provider | undefined>();
   const [address, setAddress] = useState<string | undefined>();
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [challenge, setChallenge] = useState<string | undefined>();
+  const [signature, setSignature] = useState<string | undefined>();
 
   const { addMessage, setIsLoading } = useStatusProvider();
   const { passportClient } = useImmutableProvider();
+
+  const {data} = useCheckRegistered({
+    variables: address || '',
+    options: {
+      enabled: !!address,
+    }
+  });
+
+  const {mutate: requestSignupMutation} = useRequestSignup({
+    options: {
+      onSuccess: (data) => {
+        alert('회원가입 요청 API 실행 성공')
+        console.log('[request]: 회원가입', {data});
+        if(data.data.challenge)  {
+          setChallenge(data?.data?.challenge)
+        }
+      }
+    },
+  })
+
+  const {mutate: verifySignupMutation} = useVerifySignup({
+    options: {
+      onSuccess: (data) => {
+        console.log('[verify]: 회원가입',{data});
+
+        if(data.data) {
+          tokenStorage?.set({
+            access: data.data.accessToken,
+            refresh: data.data.refreshToken
+          })
+
+          alert('토큰 발급 완료')
+        }
+
+        
+      }
+    }
+  })
 
   const connectImx = useCallback(async () => {
     try {
@@ -191,7 +235,7 @@ export function PassportProvider({
               name: 'Bob',
               wallet: '0xbBbBBBBbbBBBbbbBbbBbbbbBBbBbbbbBbBbbBBbB',
               },
-              contents: 'Hello, Bob!',
+              contents: `Welcome Luxon\n\n challenge is : ${challenge}`,
           },
           primaryType: 'Mail',
           types: {
@@ -242,8 +286,13 @@ export function PassportProvider({
       const signature = await zkEvmProvider.request({method: 'eth_signTypedData_v4', params: [address, typedData]})
       
       console.log({signature})
+      setSignature(signature);
       addMessage('Request Signature', signature);
-      
+      requestSignupMutation({
+        address: address || '',
+        birthedAt: '1991-07-30',
+        consentPrivacyAct: true,
+      })
     } catch (err) {
       console.log({err})
       console.error(err);
@@ -252,7 +301,7 @@ export function PassportProvider({
       setIsLoading(false);
     }
   }
-  , [zkEvmProvider, address, setIsLoading, addMessage])
+  , [zkEvmProvider, address, challenge, setIsLoading, addMessage, requestSignupMutation])
 
   const providerValues = useMemo(() => ({
     imxProvider,
@@ -297,10 +346,29 @@ export function PassportProvider({
   }, [zkEvmProvider])
 
   useEffect(() => {
-    if(address) {
+    if(!data) return;
+    if(data?.code === 101 && !signature) {
+      // TODO: 회원가입 진행
+      alert('등록되지 않은 계정입니다.')
       requestSignature();
+      return;
     }
-  }, [address])
+
+    alert('등록된 계정입니다.')
+  }, [data, signature, requestSignature]);
+
+  useEffect(() =>{
+    if(challenge) {
+      verifySignupMutation({
+            address: address || '',
+            challenge: challenge,
+            wallet: 'passport',
+            signature: signature || '',
+          })
+    }
+  }, [challenge, address, signature, verifySignupMutation])
+
+  console.log({challenge, address, signature})
 
   return (
     <PassportContext.Provider value={providerValues}>

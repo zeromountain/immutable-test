@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { Textarea } from './ui/textarea';
-import { Card, CardContent } from './ui/card';
+
 import { useStatusProvider } from '@/contexts/StatusProvider';
 
 function Message() {
